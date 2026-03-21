@@ -1,17 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Playlister</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 100vh;
+      margin: 0;
+      padding-top: 40px;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 0.5rem;
+    }
+    .controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 16px;
+      width: 90%;
+      max-width: 600px;
+    }
+    .controls input {
+      width: 100%;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #181818;
+      color: #eee;
+    }
+    .controls button {
+      padding: 6px 12px;
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .controls button:hover {
+      background: #333;
+    }
+    .info-box {
+      font-size: 0.9rem;
+      color: #ccc;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .player-wrapper {
+      width: 320px;
+      height: 60px;
+      overflow: hidden;
+      border-radius: 8px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.6);
+    }
+    iframe {
+      width: 100%;
+      height: 180px;
+      transform: translateY(-60px);
+      border: none;
+    }
+  </style>
+</head>
 <body>
-  <h1>My Playlist</h1>
+  <h1>Playlister</h1>
 
-  <button id="shuffleToggle" style="
-    margin-bottom: 10px;
-    padding: 6px 12px;
-    background: #222;
-    color: #eee;
-    border: 1px solid #444;
-    border-radius: 6px;
-    cursor: pointer;
-  ">
-    Shuffle: ON
-  </button>
+  <div class="controls">
+    <input id="playlistInput" type="text"
+      placeholder="Paste YouTube playlist URL (or leave for default)">
+    <div>
+      <button id="loadBtn">Load Playlist</button>
+      <button id="shuffleToggle">Shuffle: ON</button>
+    </div>
+  </div>
+
+  <div class="info-box" id="infoBox">
+    Loading playlist info…
+  </div>
 
   <div class="player-wrapper">
     <iframe id="ytPlayer"
@@ -25,26 +97,149 @@
   </div>
 
   <script>
-    const playlistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-";
-    const origin = "https://DiamondHorizon.github.io"; // <-- update this
+    // === CONFIG ===
+    const defaultPlaylistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-"; // Default playlist
+    const origin = "https://DiamondHorizon.github.io";
+    const apiKey = "AIzaSyCLkdtNrpdDA_-j9U0FvQEjqnkvF-OxGs4";
 
+    // === STATE ===
+    let currentPlaylistId = defaultPlaylistId;
     let shuffleOn = true;
 
-    function buildURL() {
-      return `https://www.youtube.com/embed/?listType=playlist&list=${playlistId}&autoplay=1&loop=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1&origin=${origin}&shuffle=${shuffleOn ? 1 : 0}`;
+    const playerEl = document.getElementById("ytPlayer");
+    const shuffleBtn = document.getElementById("shuffleToggle");
+    const loadBtn = document.getElementById("loadBtn");
+    const inputEl = document.getElementById("playlistInput");
+    const infoBox = document.getElementById("infoBox");
+
+    // Extract playlist ID from a full URL or raw ID
+    function extractPlaylistId(text) {
+      if (!text) return defaultPlaylistId;
+      try {
+        // If it's a URL, parse it
+        if (text.includes("http")) {
+          const url = new URL(text.trim());
+          const list = url.searchParams.get("list");
+          if (list) return list;
+        }
+      } catch (e) {
+        // fall through
+      }
+      // Otherwise assume it's already an ID
+      return text.trim();
+    }
+
+    function buildEmbedURL() {
+      return `https://www.youtube.com/embed/?listType=playlist&list=${currentPlaylistId}` +
+             `&autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1` +
+             `&origin=${encodeURIComponent(origin)}&shuffle=${shuffleOn ? 1 : 0}`;
     }
 
     function loadPlayer() {
-      document.getElementById("ytPlayer").src = buildURL();
+      playerEl.src = buildEmbedURL();
+      fetchPlaylistInfo(currentPlaylistId);
     }
 
-    document.getElementById("shuffleToggle").onclick = () => {
-      shuffleOn = !shuffleOn;
-      document.getElementById("shuffleToggle").textContent = "Shuffle: " + (shuffleOn ? "ON" : "OFF");
+    // Convert ISO 8601 duration (PT#H#M#S) to seconds
+    function isoDurationToSeconds(iso) {
+      const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
+      const m = iso.match(regex);
+      if (!m) return 0;
+      const h = parseInt(m[1] || "0", 10);
+      const min = parseInt(m[2] || "0", 10);
+      const s = parseInt(m[3] || "0", 10);
+      return h * 3600 + min * 60 + s;
+    }
+
+    function formatSeconds(total) {
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      if (h > 0) {
+        return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      } else {
+        return `${m}:${String(s).padStart(2, "0")}`;
+      }
+    }
+
+    async function fetchPlaylistInfo(playlistId) {
+      infoBox.textContent = "Loading playlist info…";
+
+      try {
+        // 1) Get playlist items (video IDs)
+        let videoIds = [];
+        let nextPageToken = "";
+        do {
+          const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+          url.searchParams.set("part", "contentDetails");
+          url.searchParams.set("maxResults", "50");
+          url.searchParams.set("playlistId", playlistId);
+          url.searchParams.set("key", apiKey);
+          if (nextPageToken) url.searchParams.set("pageToken", nextPageToken);
+
+          const res = await fetch(url.toString());
+          if (!res.ok) throw new Error("playlistItems request failed");
+          const data = await res.json();
+
+          const ids = data.items
+            .map(item => item.contentDetails && item.contentDetails.videoId)
+            .filter(Boolean);
+          videoIds = videoIds.concat(ids);
+
+          nextPageToken = data.nextPageToken || "";
+        } while (nextPageToken);
+
+        if (videoIds.length === 0) {
+          infoBox.textContent = "No videos found in this playlist.";
+          return;
+        }
+
+        // 2) Fetch durations in batches of 50
+        let totalSeconds = 0;
+        for (let i = 0; i < videoIds.length; i += 50) {
+          const batch = videoIds.slice(i, i + 50);
+          const url = new URL("https://www.googleapis.com/youtube/v3/videos");
+          url.searchParams.set("part", "contentDetails");
+          url.searchParams.set("id", batch.join(","));
+          url.searchParams.set("key", apiKey);
+
+          const res = await fetch(url.toString());
+          if (!res.ok) throw new Error("videos request failed");
+          const data = await res.json();
+
+          for (const v of data.items) {
+            const dur = v.contentDetails && v.contentDetails.duration;
+            if (dur) totalSeconds += isoDurationToSeconds(dur);
+          }
+        }
+
+        const totalTime = formatSeconds(totalSeconds);
+        infoBox.textContent = `Videos: ${videoIds.length} • Total time: ${totalTime}`;
+      } catch (err) {
+        console.error(err);
+        infoBox.textContent = "Could not load playlist info.";
+      }
+    }
+
+    // Event: Load button
+    loadBtn.onclick = () => {
+      const text = inputEl.value;
+      currentPlaylistId = extractPlaylistId(text);
       loadPlayer();
     };
 
-    // Load on startup
-    loadPlayer();
+    // Event: Shuffle toggle
+    shuffleBtn.onclick = () => {
+      shuffleOn = !shuffleOn;
+      shuffleBtn.textContent = "Shuffle: " + (shuffleOn ? "ON" : "OFF");
+      loadPlayer();
+    };
+
+    // Initial load with default playlist
+    window.addEventListener("load", () => {
+      inputEl.value = `https://www.youtube.com/playlist?list=${defaultPlaylistId}`;
+      loadPlayer();
+    });
   </script>
 </body>
+</html>
