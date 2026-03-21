@@ -70,7 +70,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 0.3</h1>
+  <h1>Playlister</h1>
 
   <div class="controls">
     <input id="playlistInput" type="text"
@@ -107,9 +107,9 @@
 
     // === STATE ===
     let currentPlaylistId = defaultPlaylistId;
-    let shuffleOn = true;
+    let shuffleOn = true; // shuffle ON by default
     let playlistLength = 0;
-    let ytPlayerAPIReady = false;
+    let globalVideoIds = [];
     let ytPlayer;
 
     const playerEl = document.getElementById("ytPlayer");
@@ -120,11 +120,10 @@
 
     // YouTube API callback
     function onYouTubeIframeAPIReady() {
-      ytPlayerAPIReady = true;
       ytPlayer = new YT.Player('ytPlayer', {
         events: {
           onReady: () => {
-            // Enable loop AFTER load so shuffle still works
+            // Loop is also set via URL, but this keeps it explicit
             ytPlayer.setLoop(true);
           }
         }
@@ -144,24 +143,53 @@
       return text.trim();
     }
 
-    function buildEmbedURL() {
-      const randomIndex = shuffleOn
-        ? Math.floor(Math.random() * Math.max(playlistLength, 1))
-        : 0;
+    // Fetch all video IDs and total duration
+    async function fetchPlaylistData(playlistId) {
+      let videoIds = [];
+      let nextPageToken = "";
+      let totalSeconds = 0;
 
-      return `https://www.youtube.com/embed/?listType=playlist&list=${currentPlaylistId}` +
-             `&autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1` +
-             `&origin=${encodeURIComponent(origin)}` +
-             `&shuffle=${shuffleOn ? 1 : 0}` +
-             `&index=${randomIndex}`;
+      // First: get all video IDs
+      do {
+        const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+        url.searchParams.set("part", "contentDetails");
+        url.searchParams.set("maxResults", "50");
+        url.searchParams.set("playlistId", playlistId);
+        url.searchParams.set("key", apiKey);
+        if (nextPageToken) url.searchParams.set("pageToken", nextPageToken);
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+
+        const ids = data.items
+          .map(item => item.contentDetails?.videoId)
+          .filter(Boolean);
+
+        videoIds = videoIds.concat(ids);
+        nextPageToken = data.nextPageToken || "";
+      } while (nextPageToken);
+
+      // Then: get durations in batches
+      for (let i = 0; i < videoIds.length; i += 50) {
+        const batch = videoIds.slice(i, i + 50);
+        const url = new URL("https://www.googleapis.com/youtube/v3/videos");
+        url.searchParams.set("part", "contentDetails");
+        url.searchParams.set("id", batch.join(","));
+        url.searchParams.set("key", apiKey);
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+
+        for (const v of data.items) {
+          const dur = v.contentDetails?.duration;
+          if (dur) totalSeconds += isoDurationToSeconds(dur);
+        }
+      }
+
+      return { videoIds, totalSeconds };
     }
 
-    function loadPlayer() {
-      playerEl.src = buildEmbedURL();
-      fetchPlaylistInfo(currentPlaylistId);
-    }
-
-    // Convert ISO 8601 duration to seconds
+    // ISO 8601 duration -> seconds
     function isoDurationToSeconds(iso) {
       const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
       const m = iso.match(regex);
@@ -183,60 +211,55 @@
       }
     }
 
-    async function fetchPlaylistInfo(playlistId) {
+    // Fisher–Yates shuffle
+    function shuffleArray(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // Build custom playlist URL from ordered IDs
+    function buildCustomPlaylistURL(videoIds) {
+      if (!videoIds || videoIds.length === 0) return "";
+      const playlistString = videoIds.join(",");
+      return `https://www.youtube.com/embed/?playlist=${playlistString}` +
+             `&autoplay=1&loop=1&rel=0&modestbranding=1&playsinline=1` +
+             `&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+    }
+
+    function updatePlayer() {
+      if (!globalVideoIds || globalVideoIds.length === 0) return;
+
+      let order = globalVideoIds;
+      if (shuffleOn) {
+        order = shuffleArray([...globalVideoIds]);
+      }
+
+      const url = buildCustomPlaylistURL(order);
+      if (url) {
+        playerEl.src = url;
+      }
+    }
+
+    async function loadPlaylist(playlistId) {
       infoBox.textContent = "Loading playlist info…";
-
       try {
-        let videoIds = [];
-        let nextPageToken = "";
-
-        // Fetch all playlist items
-        do {
-          const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
-          url.searchParams.set("part", "contentDetails");
-          url.searchParams.set("maxResults", "50");
-          url.searchParams.set("playlistId", playlistId);
-          url.searchParams.set("key", apiKey);
-          if (nextPageToken) url.searchParams.set("pageToken", nextPageToken);
-
-          const res = await fetch(url.toString());
-          const data = await res.json();
-
-          const ids = data.items
-            .map(item => item.contentDetails?.videoId)
-            .filter(Boolean);
-
-          videoIds = videoIds.concat(ids);
-          nextPageToken = data.nextPageToken || "";
-        } while (nextPageToken);
-
+        const { videoIds, totalSeconds } = await fetchPlaylistData(playlistId);
+        globalVideoIds = videoIds;
         playlistLength = videoIds.length;
 
         if (playlistLength === 0) {
           infoBox.textContent = "No videos found.";
+          playerEl.src = "";
           return;
-        }
-
-        // Fetch durations
-        let totalSeconds = 0;
-        for (let i = 0; i < videoIds.length; i += 50) {
-          const batch = videoIds.slice(i, i + 50);
-          const url = new URL("https://www.googleapis.com/youtube/v3/videos");
-          url.searchParams.set("part", "contentDetails");
-          url.searchParams.set("id", batch.join(","));
-          url.searchParams.set("key", apiKey);
-
-          const res = await fetch(url.toString());
-          const data = await res.json();
-
-          for (const v of data.items) {
-            const dur = v.contentDetails?.duration;
-            if (dur) totalSeconds += isoDurationToSeconds(dur);
-          }
         }
 
         const totalTime = formatSeconds(totalSeconds);
         infoBox.textContent = `Videos: ${playlistLength} • Total time: ${totalTime}`;
+
+        updatePlayer();
       } catch (err) {
         console.error(err);
         infoBox.textContent = "Could not load playlist info.";
@@ -247,20 +270,20 @@
     loadBtn.onclick = () => {
       const text = inputEl.value;
       currentPlaylistId = extractPlaylistId(text);
-      loadPlayer();
+      loadPlaylist(currentPlaylistId);
     };
 
     // Shuffle toggle
     shuffleBtn.onclick = () => {
       shuffleOn = !shuffleOn;
       shuffleBtn.textContent = "Shuffle: " + (shuffleOn ? "ON" : "OFF");
-      loadPlayer();
+      updatePlayer();
     };
 
     // Initial load
     window.addEventListener("load", () => {
       inputEl.value = `https://www.youtube.com/playlist?list=${defaultPlaylistId}`;
-      loadPlayer();
+      loadPlaylist(defaultPlaylistId);
     });
   </script>
 </body>
