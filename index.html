@@ -223,7 +223,8 @@
     // Build custom playlist URL from ordered IDs
     function buildCustomPlaylistURL(videoIds) {
       if (!videoIds || videoIds.length === 0) return "";
-      const playlistString = videoIds.join(",");
+      const limited = videoIds.slice(0, 50); // YouTube max reliable playlist size
+      const playlistString = limited.join(",");
       return `https://www.youtube.com/embed/?playlist=${playlistString}` +
              `&autoplay=1&loop=1&rel=0&modestbranding=1&playsinline=1` +
              `&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
