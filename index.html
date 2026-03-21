@@ -96,15 +96,21 @@
     </iframe>
   </div>
 
+  <!-- YouTube Iframe API -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
   <script>
     // === CONFIG ===
-    const defaultPlaylistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-"; // Default playlist
-    const origin = "https://DiamondHorizon.github.io";
+    const defaultPlaylistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-";
+    const origin = "https://diamondhorizon.github.io";
     const apiKey = "AIzaSyCLkdtNrpdDA_-j9U0FvQEjqnkvF-OxGs4";
 
     // === STATE ===
     let currentPlaylistId = defaultPlaylistId;
     let shuffleOn = true;
+    let playlistLength = 0;
+    let ytPlayerAPIReady = false;
+    let ytPlayer;
 
     const playerEl = document.getElementById("ytPlayer");
     const shuffleBtn = document.getElementById("shuffleToggle");
@@ -112,27 +118,42 @@
     const inputEl = document.getElementById("playlistInput");
     const infoBox = document.getElementById("infoBox");
 
-    // Extract playlist ID from a full URL or raw ID
+    // YouTube API callback
+    function onYouTubeIframeAPIReady() {
+      ytPlayerAPIReady = true;
+      ytPlayer = new YT.Player('ytPlayer', {
+        events: {
+          onReady: () => {
+            // Enable loop AFTER load so shuffle still works
+            ytPlayer.setLoop(true);
+          }
+        }
+      });
+    }
+
+    // Extract playlist ID from URL or raw ID
     function extractPlaylistId(text) {
       if (!text) return defaultPlaylistId;
       try {
-        // If it's a URL, parse it
         if (text.includes("http")) {
           const url = new URL(text.trim());
           const list = url.searchParams.get("list");
           if (list) return list;
         }
-      } catch (e) {
-        // fall through
-      }
-      // Otherwise assume it's already an ID
+      } catch (e) {}
       return text.trim();
     }
 
     function buildEmbedURL() {
+      const randomIndex = shuffleOn
+        ? Math.floor(Math.random() * Math.max(playlistLength, 1))
+        : 0;
+
       return `https://www.youtube.com/embed/?listType=playlist&list=${currentPlaylistId}` +
              `&autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1` +
-             `&origin=${encodeURIComponent(origin)}&shuffle=${shuffleOn ? 1 : 0}`;
+             `&origin=${encodeURIComponent(origin)}` +
+             `&shuffle=${shuffleOn ? 1 : 0}` +
+             `&index=${randomIndex}`;
     }
 
     function loadPlayer() {
@@ -140,7 +161,7 @@
       fetchPlaylistInfo(currentPlaylistId);
     }
 
-    // Convert ISO 8601 duration (PT#H#M#S) to seconds
+    // Convert ISO 8601 duration to seconds
     function isoDurationToSeconds(iso) {
       const regex = /PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/;
       const m = iso.match(regex);
@@ -166,9 +187,10 @@
       infoBox.textContent = "Loading playlist info…";
 
       try {
-        // 1) Get playlist items (video IDs)
         let videoIds = [];
         let nextPageToken = "";
+
+        // Fetch all playlist items
         do {
           const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
           url.searchParams.set("part", "contentDetails");
@@ -178,23 +200,24 @@
           if (nextPageToken) url.searchParams.set("pageToken", nextPageToken);
 
           const res = await fetch(url.toString());
-          if (!res.ok) throw new Error("playlistItems request failed");
           const data = await res.json();
 
           const ids = data.items
-            .map(item => item.contentDetails && item.contentDetails.videoId)
+            .map(item => item.contentDetails?.videoId)
             .filter(Boolean);
-          videoIds = videoIds.concat(ids);
 
+          videoIds = videoIds.concat(ids);
           nextPageToken = data.nextPageToken || "";
         } while (nextPageToken);
 
-        if (videoIds.length === 0) {
-          infoBox.textContent = "No videos found in this playlist.";
+        playlistLength = videoIds.length;
+
+        if (playlistLength === 0) {
+          infoBox.textContent = "No videos found.";
           return;
         }
 
-        // 2) Fetch durations in batches of 50
+        // Fetch durations
         let totalSeconds = 0;
         for (let i = 0; i < videoIds.length; i += 50) {
           const batch = videoIds.slice(i, i + 50);
@@ -204,38 +227,37 @@
           url.searchParams.set("key", apiKey);
 
           const res = await fetch(url.toString());
-          if (!res.ok) throw new Error("videos request failed");
           const data = await res.json();
 
           for (const v of data.items) {
-            const dur = v.contentDetails && v.contentDetails.duration;
+            const dur = v.contentDetails?.duration;
             if (dur) totalSeconds += isoDurationToSeconds(dur);
           }
         }
 
         const totalTime = formatSeconds(totalSeconds);
-        infoBox.textContent = `Videos: ${videoIds.length} • Total time: ${totalTime}`;
+        infoBox.textContent = `Videos: ${playlistLength} • Total time: ${totalTime}`;
       } catch (err) {
         console.error(err);
         infoBox.textContent = "Could not load playlist info.";
       }
     }
 
-    // Event: Load button
+    // Load button
     loadBtn.onclick = () => {
       const text = inputEl.value;
       currentPlaylistId = extractPlaylistId(text);
       loadPlayer();
     };
 
-    // Event: Shuffle toggle
+    // Shuffle toggle
     shuffleBtn.onclick = () => {
       shuffleOn = !shuffleOn;
       shuffleBtn.textContent = "Shuffle: " + (shuffleOn ? "ON" : "OFF");
       loadPlayer();
     };
 
-    // Initial load with default playlist
+    // Initial load
     window.addEventListener("load", () => {
       inputEl.value = `https://www.youtube.com/playlist?list=${defaultPlaylistId}`;
       loadPlayer();
