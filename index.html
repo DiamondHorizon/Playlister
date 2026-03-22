@@ -2,22 +2,153 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Shuffled Playlist</title>
+  <title>Custom Shuffled Player</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px;
+    }
+    h1 {
+      margin-bottom: 10px;
+    }
+    #player-container {
+      margin: 20px 0;
+    }
+    .controls {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    button {
+      padding: 6px 12px;
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #333;
+    }
+    #status {
+      font-size: 0.9rem;
+      color: #ccc;
+    }
+  </style>
 </head>
-<body style="background:#111;color:#eee;font-family:sans-serif;padding:20px;">
-  <h1>Shuffled Playlist</h1>
+<body>
+  <h1>Custom Shuffled Player</h1>
+  <div class="controls">
+    <button id="prevBtn">Prev</button>
+    <button id="nextBtn">Next</button>
+  </div>
+  <div id="status">Loading playlist…</div>
 
-  <iframe id="player" width="560" height="315"
-    frameborder="0"
-    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-    allowfullscreen>
-  </iframe>
+  <div id="player-container">
+    <div id="player"></div>
+  </div>
 
+  <script src="https://www.youtube.com/iframe_api"></script>
   <script>
-    const apiKey = "AIzaSyCLkdtNrpdDA_-j9U0FvQEjqnkvF-OxGs4";
+    // --- CONFIG ---
+    const apiKey = "YOUR_API_KEY_HERE";
     const playlistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-";
     const origin = "https://diamondhorizon.github.io"; // your real origin
 
+    // --- STATE ---
+    let allIds = [];
+    let queue = [];
+    let currentIndex = 0;
+    let player;
+
+    const statusEl = document.getElementById("status");
+    const prevBtn = document.getElementById("prevBtn");
+    const nextBtn = document.getElementById("nextBtn");
+
+    // --- LocalStorage helpers for recent history ---
+    function loadRecent() {
+      try {
+        return JSON.parse(localStorage.getItem("recentlyPlayedFull")) || [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveRecent(list) {
+      localStorage.setItem("recentlyPlayedFull", JSON.stringify(list));
+    }
+
+    function updateRecent(playedId) {
+      const recent = loadRecent();
+      const updated = [playedId, ...recent.filter(id => id !== playedId)];
+      const trimmed = updated.slice(0, 100); // remember last 100
+      saveRecent(trimmed);
+    }
+
+    // --- Shuffle helper ---
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // Build a shuffled queue of all IDs, avoiding recent if possible
+    function buildQueue() {
+      const recent = loadRecent();
+      const filtered = allIds.filter(id => !recent.includes(id));
+
+      let base;
+      if (filtered.length < 50) {
+        // Too many filtered out, reset recent and use full list
+        saveRecent([]);
+        base = [...allIds];
+      } else {
+        base = filtered;
+      }
+
+      queue = shuffle([...base]);
+      currentIndex = 0;
+    }
+
+    // --- YouTube IFrame API callback ---
+    function onYouTubeIframeAPIReady() {
+      player = new YT.Player("player", {
+        height: "315",
+        width: "560",
+        playerVars: {
+          autoplay: 1,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          origin: origin
+        },
+        events: {
+          onReady: onPlayerReady,
+          onStateChange: onPlayerStateChange
+        }
+      });
+    }
+
+    function onPlayerReady() {
+      // Once player is ready, fetch playlist and start
+      init();
+    }
+
+    function onPlayerStateChange(event) {
+      // When video ends, auto-advance
+      if (event.data === YT.PlayerState.ENDED) {
+        playNext();
+      }
+    }
+
+    // --- Fetch all video IDs from playlist ---
     async function fetchAllVideoIds() {
       let ids = [];
       let nextPage = "";
@@ -33,6 +164,11 @@
         const res = await fetch(url);
         const data = await res.json();
 
+        if (!data.items) {
+          console.error("API error:", data);
+          throw new Error("Failed to fetch playlist items");
+        }
+
         ids.push(...data.items.map(v => v.contentDetails.videoId));
         nextPage = data.nextPageToken || "";
       } while (nextPage);
@@ -40,32 +176,50 @@
       return ids;
     }
 
-    function shuffle(arr) {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
+    async function init() {
+      try {
+        statusEl.textContent = "Loading playlist…";
+        allIds = await fetchAllVideoIds();
+        statusEl.textContent = `Loaded ${allIds.length} videos. Building shuffled queue…`;
+
+        buildQueue();
+        playCurrent();
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "Error loading playlist.";
       }
-      return arr;
     }
 
-    async function loadShuffled() {
-      const ids = await fetchAllVideoIds();
-      const shuffled = shuffle([...ids]);
-
-      // YouTube requires the first video in the path
-      const first = shuffled[0];
-      const rest = shuffled.slice(1, 50); // limit to 50 for safety
-
-      const url =
-        `https://www.youtube.com/embed/${first}` +
-        `?playlist=${rest.join(",")}` +
-        `&autoplay=1&loop=1&rel=0&modestbranding=1&playsinline=1` +
-        `&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
-
-      document.getElementById("player").src = url;
+    function playCurrent() {
+      if (!queue.length) return;
+      const videoId = queue[currentIndex];
+      statusEl.textContent = `Playing ${currentIndex + 1} of ${queue.length}`;
+      player.loadVideoById(videoId);
+      updateRecent(videoId);
     }
 
-    loadShuffled();
+    function playNext() {
+      if (!queue.length) return;
+      currentIndex++;
+      if (currentIndex >= queue.length) {
+        // Rebuild queue when we reach the end
+        buildQueue();
+      }
+      playCurrent();
+    }
+
+    function playPrev() {
+      if (!queue.length) return;
+      currentIndex--;
+      if (currentIndex < 0) {
+        currentIndex = 0;
+      }
+      playCurrent();
+    }
+
+    // --- Button handlers ---
+    nextBtn.addEventListener("click", playNext);
+    prevBtn.addEventListener("click", playPrev);
   </script>
 </body>
 </html>
