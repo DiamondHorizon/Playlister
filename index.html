@@ -42,7 +42,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 1.1</h1>
+  <h1>Playlister 1.1.2</h1>
   <div class="controls">
     <button id="prevBtn">Prev</button>
     <button id="nextBtn">Next</button>
@@ -195,6 +195,19 @@
       const videoId = queue[currentIndex];
       statusEl.textContent = `Playing ${currentIndex + 1} of ${queue.length}`;
       player.loadVideoById(videoId);
+
+      // --- Media Session metadata ---
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: `Track ${currentIndex + 1}`,
+          artist: "YouTube Playlist",
+          album: "Playlister",
+          artwork: [
+            { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: "512x512", type: "image/jpeg" }
+          ]
+        });
+      }
+      
       updateRecent(videoId);
     }
 
