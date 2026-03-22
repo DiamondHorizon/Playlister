@@ -42,7 +42,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 1.1.3</h1>
+  <h1>Playlister 1.1.4</h1>
   <div class="controls">
     <button id="prevBtn">Prev</button>
     <button id="nextBtn">Next</button>
@@ -229,12 +229,18 @@
       playCurrent();
     }
 
-    if ("mediaSession" in navigator) {
-      navigator.mediaSession.setActionHandler("nexttrack", playNext);
-      navigator.mediaSession.setActionHandler("previoustrack", playPrev);
-      navigator.mediaSession.setActionHandler("play", () => player.playVideo());
-      navigator.mediaSession.setActionHandler("pause", () => player.pauseVideo());
-    }
+    window.addEventListener("keydown", (e) => {
+      // Debug: see what your keyboard is actually sending
+      console.log("Key pressed:", e.key, e.code);
+    
+      // Try common media-key emulation keys
+      if (e.key === "MediaTrackNext" || e.code === "MediaTrackNext" || e.key === "F9") {
+        playNext();
+      }
+      if (e.key === "MediaTrackPrevious" || e.code === "MediaTrackPrevious" || e.key === "F8") {
+        playPrev();
+      }
+    });
 
     // --- Button handlers ---
     nextBtn.addEventListener("click", playNext);
