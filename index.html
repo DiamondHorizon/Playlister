@@ -207,6 +207,8 @@
             { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: "512x512", type: "image/jpeg" }
           ]
         });
+        
+        navigator.mediaSession.playbackState = "playing";
       }
     }
 
@@ -229,15 +231,26 @@
       playCurrent();
     }
 
-    window.addEventListener("keydown", (e) => {
-      // Debug: see what your keyboard is actually sending
-      console.log("Key pressed:", e.key, e.code);
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("nexttrack", playNext);
+      navigator.mediaSession.setActionHandler("previoustrack", playPrev);
     
-      // Try common media-key emulation keys
-      if (e.key === "MediaTrackNext" || e.code === "MediaTrackNext" || e.key === "F9") {
+      navigator.mediaSession.setActionHandler("play", () => {
+        player.playVideo();
+        navigator.mediaSession.playbackState = "playing";
+      });
+    
+      navigator.mediaSession.setActionHandler("pause", () => {
+        player.pauseVideo();
+        navigator.mediaSession.playbackState = "paused";
+      });
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "MediaTrackNext" || e.code === "MediaTrackNext") {
         playNext();
       }
-      if (e.key === "MediaTrackPrevious" || e.code === "MediaTrackPrevious" || e.key === "F8") {
+      if (e.key === "MediaTrackPrevious" || e.code === "MediaTrackPrevious") {
         playPrev();
       }
     });
