@@ -2,20 +2,70 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Playlister</title>
+  <title>Shuffled Playlist</title>
 </head>
-<body>
-  <h1>My Playlist</h1>
-  <div class="player-wrapper">
-    <iframe width="560" 
-      height="315" 
-      src="https://www.youtube.com/embed/videoseries?si=_Z_--g5KZUX365vz&amp;list=PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-" 
-      title="YouTube video player" 
-      frameborder="0"
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
-      referrerpolicy="strict-origin-when-cross-origin" 
-      allowfullscreen>
-    </iframe>
-  </div>
+<body style="background:#111;color:#eee;font-family:sans-serif;padding:20px;">
+  <h1>Shuffled Playlist</h1>
+
+  <iframe id="player" width="560" height="315"
+    frameborder="0"
+    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+    allowfullscreen>
+  </iframe>
+
+  <script>
+    const apiKey = "AIzaSyCLkdtNrpdDA_-j9U0FvQEjqnkvF-OxGs4";
+    const playlistId = "PL9wkJkRUXMSokLJ6zizzG5CNGprxOyX2-";
+    const origin = "https://diamondhorizon.github.io"; // your real origin
+
+    async function fetchAllVideoIds() {
+      let ids = [];
+      let nextPage = "";
+
+      do {
+        const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
+        url.searchParams.set("part", "contentDetails");
+        url.searchParams.set("maxResults", "50");
+        url.searchParams.set("playlistId", playlistId);
+        url.searchParams.set("key", apiKey);
+        if (nextPage) url.searchParams.set("pageToken", nextPage);
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        ids.push(...data.items.map(v => v.contentDetails.videoId));
+        nextPage = data.nextPageToken || "";
+      } while (nextPage);
+
+      return ids;
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    async function loadShuffled() {
+      const ids = await fetchAllVideoIds();
+      const shuffled = shuffle([...ids]);
+
+      // YouTube requires the first video in the path
+      const first = shuffled[0];
+      const rest = shuffled.slice(1, 50); // limit to 50 for safety
+
+      const url =
+        `https://www.youtube.com/embed/${first}` +
+        `?playlist=${rest.join(",")}` +
+        `&autoplay=1&loop=1&rel=0&modestbranding=1&playsinline=1` +
+        `&enablejsapi=1&origin=${encodeURIComponent(origin)}`;
+
+      document.getElementById("player").src = url;
+    }
+
+    loadShuffled();
+  </script>
 </body>
 </html>
