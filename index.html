@@ -42,7 +42,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 1.1.6</h1>
+  <h1>Playlister 1.1.7</h1>
   <div class="controls">
     <button id="prevBtn">Prev</button>
     <button id="nextBtn">Next</button>
@@ -209,6 +209,12 @@
         });
     
         navigator.mediaSession.playbackState = "playing";
+
+        navigator.mediaSession.setPositionState({
+          duration: 0,     // YouTube doesn't give us duration until later
+          playbackRate: 1,
+          position: 0
+        });
       }
     }
 
