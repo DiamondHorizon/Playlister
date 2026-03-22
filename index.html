@@ -42,7 +42,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 1.1.9</h1>
+  <h1>Playlister 1.1.10</h1>
   <div class="controls">
     <button id="prevBtn">Prev</button>
     <button id="nextBtn">Next</button>
@@ -146,6 +146,9 @@
         events: {
           onReady: () => {
             hiddenPlayer.pauseVideo();
+            // Give the hidden playlist real media focus
+            hiddenPlayer.playVideo();
+            setTimeout(() => hiddenPlayer.pauseVideo(), 200);
           }
         }
       });
