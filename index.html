@@ -42,7 +42,7 @@
   </style>
 </head>
 <body>
-  <h1>Playlister 1.1.5</h1>
+  <h1>Playlister 1.1.6</h1>
   <div class="controls">
     <button id="prevBtn">Prev</button>
     <button id="nextBtn">Next</button>
@@ -196,8 +196,8 @@
       statusEl.textContent = `Playing ${currentIndex + 1} of ${queue.length}`;
       player.loadVideoById(videoId);
       updateRecent(videoId);
-
-      // --- Media Session metadata ---
+    
+      // --- Media Session metadata + playback state ---
       if ("mediaSession" in navigator) {
         navigator.mediaSession.metadata = new MediaMetadata({
           title: `Track ${currentIndex + 1}`,
@@ -207,7 +207,7 @@
             { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: "512x512", type: "image/jpeg" }
           ]
         });
-        
+    
         navigator.mediaSession.playbackState = "playing";
       }
     }
